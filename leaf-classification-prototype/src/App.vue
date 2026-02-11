@@ -24,14 +24,7 @@ const tabs: { key: TabKey; label: string; subtitle: string }[] = [
 <template>
   <main class="w-full max-w-5xl mx-auto px-6 py-8 space-y-6">
     <header class="space-y-3">
-      <div>
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
-          GBCS · Thesis Prototype
-        </p>
-        <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-50">
-          Plant Leaf Classification Interface
-        </h1>
-      </div>
+      
 
       <!-- Simple tabbed navbar -->
       <nav class="flex flex-wrap items-center gap-2 text-sm">
