@@ -154,31 +154,32 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <!-- Mobile: full-width video, Desktop: contained aspect-video -->
-        <div class="flex-1 flex items-center justify-center overflow-hidden md:rounded-xl md:border md:border-slate-800 bg-black">
+        <!-- Mobile: fitted video preview, Desktop: contained aspect-video -->
+        <div class="flex items-center justify-center overflow-hidden bg-black md:rounded-xl md:border md:border-slate-800">
           <video
             ref="videoRef"
             autoplay
             playsinline
-            class="w-full h-full object-cover md:block md:w-full md:aspect-video md:h-auto md:object-contain"
+            class="w-full max-h-[60vh] object-cover md:block md:w-full md:aspect-video md:h-auto md:max-h-none md:object-contain"
           />
         </div>
 
-        <p v-if="cameraError" class="text-[11px] text-red-400 px-4 md:px-0">
+        <p v-if="cameraError" class="text-[11px] text-red-400 px-4 py-2 md:px-0 md:py-0">
           {{ cameraError }}
         </p>
 
-        <div class="flex items-center justify-end gap-2 text-[11px] p-4 pb-6 md:p-0 md:pb-0">
+        <!-- Mobile: prominent bottom button, Desktop: original layout -->
+        <div class="flex flex-col gap-3 p-4 pb-6 md:flex-row md:items-center md:justify-end md:gap-2 md:text-[11px] md:p-0 md:pb-0">
           <button
             type="button"
-            class="rounded-md border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-800"
+            class="rounded-md border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-800 md:text-[11px]"
             @click="closeCamera"
           >
             Cancel
           </button>
           <button
             type="button"
-            class="rounded-md bg-emerald-500 px-4 py-1.5 font-semibold text-slate-950 hover:bg-emerald-400"
+            class="rounded-lg bg-emerald-500 px-6 py-3 text-base font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 active:scale-95 transition-transform md:rounded-md md:px-4 md:py-1.5 md:text-[11px] md:shadow-none"
             @click="captureFromCamera"
           >
             Capture &amp; classify
