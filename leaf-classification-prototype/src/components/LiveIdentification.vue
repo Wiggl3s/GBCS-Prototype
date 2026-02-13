@@ -83,7 +83,24 @@ async function startCamera() {
     const video = videoRef.value
     if (video) {
       video.srcObject = stream
-      await video.play()
+      video.muted = true // Required for autoplay on mobile
+      video.setAttribute('playsinline', 'true') // iOS requirement
+      
+      // Wait for video to be ready
+      await new Promise<void>((resolve) => {
+        if (video.readyState >= 2) {
+          resolve()
+        } else {
+          video.addEventListener('loadedmetadata', () => resolve(), { once: true })
+        }
+      })
+      
+      try {
+        await video.play()
+      } catch (playErr) {
+        // If autoplay fails, try with user interaction
+        console.warn('Autoplay failed, video will play on user interaction')
+      }
     }
   } catch (err: any) {
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -178,12 +195,13 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Mobile: fitted video preview, Desktop: contained aspect-video -->
-        <div class="flex items-center justify-center overflow-hidden bg-black max-h-[45vh] md:max-h-[280px] md:rounded-lg md:border md:border-slate-800">
+        <div class="flex items-center justify-center overflow-hidden bg-black max-h-[45vh] min-h-[200px] md:max-h-[280px] md:min-h-0 md:rounded-lg md:border md:border-slate-800">
           <video
             ref="videoRef"
             autoplay
             playsinline
-            class="w-full h-full max-h-[45vh] object-cover md:block md:w-full md:aspect-video md:h-auto md:max-h-[280px] md:object-contain"
+            muted
+            class="w-full h-full max-h-[45vh] min-h-[200px] object-cover md:block md:w-full md:aspect-video md:h-auto md:max-h-[280px] md:min-h-0 md:object-contain"
           />
         </div>
 
