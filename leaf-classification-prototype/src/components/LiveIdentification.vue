@@ -80,6 +80,10 @@ async function startCamera() {
     }
     
     cameraStream.value = stream
+    
+    // Wait for video element to be in DOM
+    await nextTick()
+    
     const video = videoRef.value
     if (video) {
       // Set video properties before attaching stream
@@ -90,56 +94,30 @@ async function startCamera() {
       // Attach stream
       video.srcObject = stream
       
-      // Wait for video to be ready (more lenient on mobile)
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            // Don't reject on timeout - just proceed, mobile might be slower
-            console.warn('Video metadata loading slow, proceeding anyway')
-            resolve()
-          }, 10000) // Increased timeout for mobile
-          
-          // Check if already ready
-          if (video.readyState >= 1) {
-            clearTimeout(timeout)
-            resolve()
-            return
-          }
-          
-          // Listen for any of these events
-          const onReady = () => {
-            clearTimeout(timeout)
-            resolve()
-          }
-          
-          video.addEventListener('loadedmetadata', onReady, { once: true })
-          video.addEventListener('loadeddata', onReady, { once: true })
-          video.addEventListener('canplay', onReady, { once: true })
-          
-          video.addEventListener('error', (e) => {
-            clearTimeout(timeout)
-            reject(e)
-          }, { once: true })
+      // Simple approach: just try to play immediately
+      // Mobile browsers will handle the stream attachment
+      const tryPlay = async () => {
+        try {
+          await video.play()
+          console.log('Video playing successfully')
+        } catch (playErr: any) {
+          console.warn('Autoplay failed, will retry on user interaction:', playErr)
+          // Video will play when user interacts
+        }
+      }
+      
+      // Try playing immediately
+      await tryPlay()
+      
+      // Also listen for when video becomes ready and try playing again
+      const onCanPlay = () => {
+        video.play().catch(() => {
+          // Ignore - user can tap to play
         })
-      } catch (err) {
-        console.warn('Video metadata wait failed, continuing anyway:', err)
-        // Continue even if metadata loading had issues
       }
-      
-      // Ensure video has dimensions (if available)
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        video.style.width = '100%'
-        video.style.height = '100%'
-        video.style.objectFit = 'cover'
-      }
-      
-      // Play video
-      try {
-        await video.play()
-      } catch (playErr: any) {
-        console.warn('Autoplay failed:', playErr)
-        // On mobile, user interaction might be needed - don't show error, just let user tap
-      }
+      video.addEventListener('canplay', onCanPlay, { once: true })
+      video.addEventListener('loadedmetadata', onCanPlay, { once: true })
+      video.addEventListener('loadeddata', onCanPlay, { once: true })
     }
   } catch (err: any) {
     // Ignore metadata timeout errors - they're handled gracefully
@@ -183,9 +161,10 @@ function closeCamera() {
 
 function handleVideoClick() {
   const video = videoRef.value
-  if (video && video.paused && cameraStream.value) {
+  if (video && cameraStream.value) {
+    // Always try to play, even if not paused (mobile might need this)
     video.play().catch((err) => {
-      console.warn('Manual play failed:', err)
+      console.warn('Video play failed:', err)
     })
   }
 }
@@ -238,7 +217,7 @@ onBeforeUnmount(() => {
       v-if="isCameraOpen"
       class="fixed inset-0 z-40 flex flex-col bg-black md:items-center md:justify-center md:bg-black/70 md:px-4"
     >
-      <div class="flex-1 flex flex-col w-full md:w-auto md:max-w-sm md:rounded-xl md:border md:border-slate-700 md:bg-slate-950 md:p-3 md:space-y-2 md:shadow-xl">
+      <div class="flex-1 flex flex-col w-full md:w-auto md:max-w-md md:rounded-xl md:border md:border-slate-700 md:bg-slate-950 md:p-4 md:space-y-3 md:shadow-xl">
         <div class="flex items-center justify-between gap-2 p-3 md:p-0">
           <div class="min-w-0 flex-1">
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-300">
@@ -252,17 +231,25 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Mobile: fitted video preview, Desktop: contained aspect-video -->
-        <div class="relative w-full h-[50vh] max-h-[400px] bg-black md:max-h-[280px] md:rounded-lg md:border md:border-slate-800">
+        <div class="relative w-full h-[50vh] max-h-[400px] bg-black md:h-auto md:max-h-none md:rounded-lg md:border md:border-slate-800 md:overflow-hidden">
           <video
             ref="videoRef"
             autoplay
             playsinline
             muted
-            class="absolute inset-0 w-full h-full object-cover md:relative md:block md:aspect-video md:h-auto md:object-contain"
+            webkit-playsinline
+            class="absolute inset-0 w-full h-full object-cover md:relative md:block md:w-full md:aspect-video md:h-auto md:object-contain md:bg-black"
+            style="display: block; width: 100%;"
             @click="handleVideoClick"
+            @loadedmetadata="handleVideoClick"
           />
-          <div v-if="!cameraStream && !cameraError" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
-            Loading camera...
+          <div v-if="!cameraStream && !cameraError" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm z-10 md:absolute md:inset-0">
+            <div class="flex flex-col items-center gap-2">
+              <svg class="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span>Loading camera...</span>
+            </div>
           </div>
         </div>
 
