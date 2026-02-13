@@ -82,24 +82,50 @@ async function startCamera() {
     cameraStream.value = stream
     const video = videoRef.value
     if (video) {
-      video.srcObject = stream
+      // Set video properties before attaching stream
       video.muted = true // Required for autoplay on mobile
       video.setAttribute('playsinline', 'true') // iOS requirement
+      video.setAttribute('webkit-playsinline', 'true') // iOS Safari legacy
       
-      // Wait for video to be ready
-      await new Promise<void>((resolve) => {
+      // Attach stream
+      video.srcObject = stream
+      
+      // Wait for video metadata to load
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Video metadata timeout'))
+        }, 5000)
+        
         if (video.readyState >= 2) {
+          clearTimeout(timeout)
           resolve()
         } else {
-          video.addEventListener('loadedmetadata', () => resolve(), { once: true })
+          video.addEventListener('loadedmetadata', () => {
+            clearTimeout(timeout)
+            resolve()
+          }, { once: true })
+          
+          video.addEventListener('error', (e) => {
+            clearTimeout(timeout)
+            reject(e)
+          }, { once: true })
         }
       })
       
+      // Ensure video has dimensions
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        video.style.width = '100%'
+        video.style.height = '100%'
+        video.style.objectFit = 'cover'
+      }
+      
+      // Play video
       try {
         await video.play()
-      } catch (playErr) {
-        // If autoplay fails, try with user interaction
-        console.warn('Autoplay failed, video will play on user interaction')
+      } catch (playErr: any) {
+        console.warn('Autoplay failed:', playErr)
+        // On mobile, user interaction might be needed
+        cameraError.value = 'Tap the video to start camera preview.'
       }
     }
   } catch (err: any) {
@@ -136,9 +162,21 @@ function closeCamera() {
   isCameraOpen.value = false
 }
 
+function handleVideoClick() {
+  const video = videoRef.value
+  if (video && video.paused && cameraStream.value) {
+    video.play().catch((err) => {
+      console.warn('Manual play failed:', err)
+    })
+  }
+}
+
 function captureFromCamera() {
   const video = videoRef.value
-  if (!video || !video.videoWidth || !video.videoHeight) return
+  if (!video || !video.videoWidth || !video.videoHeight) {
+    cameraError.value = 'Camera not ready. Please wait for the preview to load.'
+    return
+  }
 
   const canvas = document.createElement('canvas')
   canvas.width = video.videoWidth
@@ -195,14 +233,18 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Mobile: fitted video preview, Desktop: contained aspect-video -->
-        <div class="flex items-center justify-center overflow-hidden bg-black max-h-[45vh] min-h-[200px] md:max-h-[280px] md:min-h-0 md:rounded-lg md:border md:border-slate-800">
+        <div class="relative w-full h-[50vh] max-h-[400px] bg-black md:max-h-[280px] md:rounded-lg md:border md:border-slate-800">
           <video
             ref="videoRef"
             autoplay
             playsinline
             muted
-            class="w-full h-full max-h-[45vh] min-h-[200px] object-cover md:block md:w-full md:aspect-video md:h-auto md:max-h-[280px] md:min-h-0 md:object-contain"
+            class="absolute inset-0 w-full h-full object-cover md:relative md:block md:aspect-video md:h-auto md:object-contain"
+            @click="handleVideoClick"
           />
+          <div v-if="!cameraStream && !cameraError" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
+            Loading camera...
+          </div>
         </div>
 
         <p v-if="cameraError" class="text-[10px] text-red-400 px-3 py-1 md:px-0 md:py-0.5">
