@@ -79,46 +79,162 @@ async function startCamera() {
       return
     }
     
+    // Verify stream has active video tracks
+    const videoTracks = stream.getVideoTracks()
+    if (videoTracks.length === 0) {
+      cameraError.value = 'No video track found in camera stream.'
+      stream.getTracks().forEach(track => track.stop())
+      return
+    }
+    
+    console.log('Camera stream obtained:', {
+      videoTracks: videoTracks.length,
+      trackSettings: videoTracks[0]?.getSettings(),
+      trackEnabled: videoTracks[0]?.enabled,
+      trackReadyState: videoTracks[0]?.readyState
+    })
+    
     cameraStream.value = stream
+    
+    // Detect iOS
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     
     // Wait for video element to be in DOM
     await nextTick()
     
+    // iOS needs extra time for DOM to be ready
+    if (isIOS) {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    }
+    
     const video = videoRef.value
-    if (video) {
-      // Set video properties before attaching stream
-      video.muted = true // Required for autoplay on mobile
-      video.setAttribute('playsinline', 'true') // iOS requirement
-      video.setAttribute('webkit-playsinline', 'true') // iOS Safari legacy
-      
-      // Attach stream
-      video.srcObject = stream
-      
-      // Simple approach: just try to play immediately
-      // Mobile browsers will handle the stream attachment
-      const tryPlay = async () => {
-        try {
-          await video.play()
-          console.log('Video playing successfully')
-        } catch (playErr: any) {
-          console.warn('Autoplay failed, will retry on user interaction:', playErr)
-          // Video will play when user interacts
-        }
-      }
-      
-      // Try playing immediately
-      await tryPlay()
-      
-      // Also listen for when video becomes ready and try playing again
-      const onCanPlay = () => {
-        video.play().catch(() => {
-          // Ignore - user can tap to play
+    if (!video) {
+      console.error('Video element not found')
+      return
+    }
+    
+    // Set video properties before attaching stream (iOS is very strict)
+    video.muted = true // Required for autoplay on mobile
+    video.setAttribute('playsinline', 'true') // iOS requirement
+    video.setAttribute('webkit-playsinline', 'true') // iOS Safari legacy
+    video.setAttribute('autoplay', 'autoplay') // iOS needs explicit autoplay
+    video.setAttribute('x5-playsinline', 'true') // Some Android browsers
+    video.setAttribute('x5-video-player-type', 'h5')
+    
+    // Ensure video is visible (iOS needs this before attaching stream)
+    video.style.display = 'block'
+    video.style.width = '100%'
+    video.style.height = '100%'
+    video.style.objectFit = 'cover'
+    video.style.zIndex = '1'
+    video.style.position = 'absolute'
+    video.style.top = '0'
+    video.style.left = '0'
+    
+    // iOS sometimes needs explicit dimensions
+    if (isIOS) {
+      video.setAttribute('width', '100%')
+      video.setAttribute('height', '100%')
+    }
+    
+    // For iOS, ensure video is in viewport before attaching
+    if (isIOS) {
+      video.scrollIntoView({ behavior: 'instant', block: 'nearest' })
+    }
+    
+    // Attach stream
+    video.srcObject = stream
+    
+    // iOS needs the stream to be attached before trying to play
+    if (isIOS) {
+      // Wait a bit for iOS to process the stream
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    
+    // Add error handler for video element
+    video.addEventListener('error', (e) => {
+      console.error('Video element error:', e)
+      const error = video.error
+      if (error) {
+        console.error('Video error details:', {
+          code: error.code,
+          message: error.message
         })
       }
-      video.addEventListener('canplay', onCanPlay, { once: true })
-      video.addEventListener('loadedmetadata', onCanPlay, { once: true })
-      video.addEventListener('loadeddata', onCanPlay, { once: true })
+    }, { once: true })
+    
+    // Function to attempt playing the video
+    const tryPlay = async () => {
+      try {
+        // iOS sometimes needs the video to be loaded first
+        if (isIOS && video.readyState < 2) {
+          console.log('iOS: Waiting for video to be ready, current readyState:', video.readyState)
+          return
+        }
+        
+        if (video.paused) {
+          await video.play()
+          console.log('Video playing successfully, readyState:', video.readyState)
+        } else {
+          console.log('Video already playing')
+        }
+      } catch (playErr: any) {
+        console.warn('Autoplay failed:', playErr)
+        // On iOS, this is expected - user interaction will be needed
+        if (isIOS) {
+          console.log('iOS: Autoplay blocked, video will play on user interaction')
+        }
+      }
     }
+    
+    // Listen for when video becomes ready and try playing
+    const onReady = () => {
+      console.log('Video ready event fired, readyState:', video.readyState)
+      tryPlay()
+    }
+    
+    // Add listeners for various ready states
+    video.addEventListener('loadedmetadata', () => {
+      console.log('Video metadata loaded')
+      onReady()
+    }, { once: true })
+    
+    video.addEventListener('loadeddata', () => {
+      console.log('Video data loaded')
+      onReady()
+    }, { once: true })
+    
+    video.addEventListener('canplay', () => {
+      console.log('Video can play')
+      onReady()
+    }, { once: true })
+    
+    video.addEventListener('canplaythrough', () => {
+      console.log('Video can play through')
+      onReady()
+    }, { once: true })
+    
+    video.addEventListener('playing', () => {
+      console.log('Video is now playing')
+    }, { once: true })
+    
+    // Try playing immediately
+    await tryPlay()
+    
+    // iOS needs more aggressive retry strategy
+    const retryDelays = isIOS ? [300, 600, 1000, 1500] : [200, 500]
+    
+    retryDelays.forEach((delay, index) => {
+      setTimeout(() => {
+        if (video.readyState >= 2 || !isIOS) {
+          console.log(`Delayed play attempt ${index + 1} (${delay}ms)`)
+          tryPlay()
+        } else {
+          console.log(`Skipping attempt ${index + 1}, video not ready (readyState: ${video.readyState})`)
+        }
+      }, delay)
+    })
   } catch (err: any) {
     // Ignore metadata timeout errors - they're handled gracefully
     if (err.message && err.message.includes('Video metadata timeout')) {
@@ -162,7 +278,26 @@ function closeCamera() {
 function handleVideoClick() {
   const video = videoRef.value
   if (video && cameraStream.value) {
-    // Always try to play, even if not paused (mobile might need this)
+    // Always try to play (iOS especially needs user interaction)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    
+    console.log('Video clicked/touched, attempting to play. Paused:', video.paused, 'ReadyState:', video.readyState, 'iOS:', isIOS)
+    
+    // iOS needs more aggressive play attempt
+    if (isIOS) {
+      // Ensure video is ready
+      if (video.readyState < 2) {
+        console.log('iOS: Video not ready yet, waiting...')
+        video.addEventListener('canplay', () => {
+          video.play().catch((err) => {
+            console.warn('iOS video play failed:', err)
+          })
+        }, { once: true })
+        return
+      }
+    }
+    
     video.play().catch((err) => {
       console.warn('Video play failed:', err)
     })
@@ -217,7 +352,9 @@ onBeforeUnmount(() => {
       v-if="isCameraOpen"
       class="fixed inset-0 z-40 flex flex-col bg-black md:items-center md:justify-center md:bg-black/70 md:px-4"
     >
+      <!-- Mobile: Full screen layout -->
       <div class="flex-1 flex flex-col w-full md:w-auto md:max-w-md md:rounded-xl md:border md:border-slate-700 md:bg-slate-950 md:p-4 md:space-y-3 md:shadow-xl">
+        <!-- Mobile header -->
         <div class="flex items-center justify-between gap-2 p-3 md:p-0">
           <div class="min-w-0 flex-1">
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-300">
@@ -227,23 +364,29 @@ onBeforeUnmount(() => {
               Align the plant leaf, then capture to classify.
             </p>
           </div>
-         
         </div>
 
-        <!-- Mobile: fitted video preview, Desktop: contained aspect-video -->
-        <div class="relative w-full h-[50vh] max-h-[400px] bg-black md:h-auto md:max-h-none md:rounded-lg md:border md:border-slate-800 md:overflow-hidden">
+        <!-- Mobile: Full screen video, Desktop: contained aspect-video -->
+        <div class="relative flex-1 w-full bg-black md:flex-none md:h-auto md:max-h-none md:rounded-lg md:border md:border-slate-800 md:overflow-hidden">
           <video
             ref="videoRef"
             autoplay
             playsinline
             muted
             webkit-playsinline
+            x5-playsinline
+            x5-video-player-type="h5"
             class="absolute inset-0 w-full h-full object-cover md:relative md:block md:w-full md:aspect-video md:h-auto md:object-contain md:bg-black"
-            style="display: block; width: 100%;"
+            style="display: block !important; width: 100% !important; height: 100% !important; z-index: 1; background: black; -webkit-transform: translateZ(0); transform: translateZ(0);"
             @click="handleVideoClick"
+            @touchstart="handleVideoClick"
+            @touchend="handleVideoClick"
             @loadedmetadata="handleVideoClick"
+            @canplay="handleVideoClick"
+            @loadeddata="handleVideoClick"
+            @playing="handleVideoClick"
           />
-          <div v-if="!cameraStream && !cameraError" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm z-10 md:absolute md:inset-0">
+          <div v-if="!cameraStream && !cameraError" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm z-20 pointer-events-none">
             <div class="flex flex-col items-center gap-2">
               <svg class="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -257,6 +400,7 @@ onBeforeUnmount(() => {
           {{ cameraError }}
         </p>
 
+        <!-- Mobile: Fixed bottom buttons, Desktop: Normal flow -->
         <div class="flex items-center justify-end gap-2 text-[11px] p-3 pb-4 md:p-0 md:pb-0 md:pt-2">
           <button
             type="button"
