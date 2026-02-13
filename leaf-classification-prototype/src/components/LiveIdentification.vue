@@ -90,29 +90,43 @@ async function startCamera() {
       // Attach stream
       video.srcObject = stream
       
-      // Wait for video metadata to load
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Video metadata timeout'))
-        }, 5000)
-        
-        if (video.readyState >= 2) {
-          clearTimeout(timeout)
-          resolve()
-        } else {
-          video.addEventListener('loadedmetadata', () => {
+      // Wait for video to be ready (more lenient on mobile)
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            // Don't reject on timeout - just proceed, mobile might be slower
+            console.warn('Video metadata loading slow, proceeding anyway')
+            resolve()
+          }, 10000) // Increased timeout for mobile
+          
+          // Check if already ready
+          if (video.readyState >= 1) {
             clearTimeout(timeout)
             resolve()
-          }, { once: true })
+            return
+          }
+          
+          // Listen for any of these events
+          const onReady = () => {
+            clearTimeout(timeout)
+            resolve()
+          }
+          
+          video.addEventListener('loadedmetadata', onReady, { once: true })
+          video.addEventListener('loadeddata', onReady, { once: true })
+          video.addEventListener('canplay', onReady, { once: true })
           
           video.addEventListener('error', (e) => {
             clearTimeout(timeout)
             reject(e)
           }, { once: true })
-        }
-      })
+        })
+      } catch (err) {
+        console.warn('Video metadata wait failed, continuing anyway:', err)
+        // Continue even if metadata loading had issues
+      }
       
-      // Ensure video has dimensions
+      // Ensure video has dimensions (if available)
       if (video.videoWidth > 0 && video.videoHeight > 0) {
         video.style.width = '100%'
         video.style.height = '100%'
@@ -124,11 +138,16 @@ async function startCamera() {
         await video.play()
       } catch (playErr: any) {
         console.warn('Autoplay failed:', playErr)
-        // On mobile, user interaction might be needed
-        cameraError.value = 'Tap the video to start camera preview.'
+        // On mobile, user interaction might be needed - don't show error, just let user tap
       }
     }
   } catch (err: any) {
+    // Ignore metadata timeout errors - they're handled gracefully
+    if (err.message && err.message.includes('Video metadata timeout')) {
+      console.warn('Metadata timeout handled, camera should still work')
+      return
+    }
+    
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
       cameraError.value = 'Camera permission denied. Please allow camera access in your browser settings.'
     } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
