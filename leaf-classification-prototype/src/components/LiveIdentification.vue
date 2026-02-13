@@ -49,23 +49,52 @@ async function startCamera() {
       cameraError.value = 'Camera not supported in this browser.'
       return
     }
-    // Request ideal resolution for mobile (prefer wide aspect ratios)
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        aspectRatio: { ideal: 16 / 9 },
-      },
-    })
+    
+    // Try with ideal constraints first
+    let stream: MediaStream | null = null
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      })
+    } catch (err) {
+      // Fallback: try without constraints if ideal fails
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        })
+      } catch (fallbackErr) {
+        // Final fallback: try any camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        })
+      }
+    }
+    
+    if (!stream) {
+      cameraError.value = 'Could not access camera. Please check browser permissions.'
+      return
+    }
+    
     cameraStream.value = stream
     const video = videoRef.value
     if (video) {
       video.srcObject = stream
       await video.play()
     }
-  } catch (err) {
-    cameraError.value = 'Unable to access camera. Please check permissions.'
+  } catch (err: any) {
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      cameraError.value = 'Camera permission denied. Please allow camera access in your browser settings.'
+    } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      cameraError.value = 'No camera found on this device.'
+    } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+      cameraError.value = 'Camera is already in use by another application.'
+    } else {
+      cameraError.value = `Unable to access camera: ${err.message || 'Unknown error'}.`
+    }
   }
 }
 
@@ -135,51 +164,44 @@ onBeforeUnmount(() => {
       v-if="isCameraOpen"
       class="fixed inset-0 z-40 flex flex-col bg-black md:items-center md:justify-center md:bg-black/70 md:px-4"
     >
-      <div class="flex-1 flex flex-col w-full md:w-full md:max-w-xl md:rounded-2xl md:border md:border-slate-700 md:bg-slate-950 md:p-4 md:space-y-3 md:shadow-xl">
-        <div class="flex items-center justify-between gap-3 p-4 md:p-0">
-          <div>
+      <div class="flex-1 flex flex-col w-full md:w-auto md:max-w-sm md:rounded-xl md:border md:border-slate-700 md:bg-slate-950 md:p-3 md:space-y-2 md:shadow-xl">
+        <div class="flex items-center justify-between gap-2 p-3 md:p-0">
+          <div class="min-w-0 flex-1">
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-300">
               Live capture
             </p>
-            <p class="text-[11px] text-slate-400 hidden md:block">
-              Align the plant leaf, then capture to classify using the pre-optimised feature mask.
+            <p class="text-[10px] text-slate-400 hidden md:block mt-0.5">
+              Align the plant leaf, then capture to classify.
             </p>
           </div>
-          <button
-            type="button"
-            class="text-[11px] text-slate-400 hover:text-slate-200"
-            @click="closeCamera"
-          >
-            Close
-          </button>
+         
         </div>
 
         <!-- Mobile: fitted video preview, Desktop: contained aspect-video -->
-        <div class="flex items-center justify-center overflow-hidden bg-black md:rounded-xl md:border md:border-slate-800">
+        <div class="flex items-center justify-center overflow-hidden bg-black max-h-[45vh] md:max-h-[280px] md:rounded-lg md:border md:border-slate-800">
           <video
             ref="videoRef"
             autoplay
             playsinline
-            class="w-full max-h-[60vh] object-cover md:block md:w-full md:aspect-video md:h-auto md:max-h-none md:object-contain"
+            class="w-full h-full max-h-[45vh] object-cover md:block md:w-full md:aspect-video md:h-auto md:max-h-[280px] md:object-contain"
           />
         </div>
 
-        <p v-if="cameraError" class="text-[11px] text-red-400 px-4 py-2 md:px-0 md:py-0">
+        <p v-if="cameraError" class="text-[10px] text-red-400 px-3 py-1 md:px-0 md:py-0.5">
           {{ cameraError }}
         </p>
 
-        <!-- Mobile: prominent bottom button, Desktop: original layout -->
-        <div class="flex flex-col gap-3 p-4 pb-6 md:flex-row md:items-center md:justify-end md:gap-2 md:text-[11px] md:p-0 md:pb-0">
+        <div class="flex items-center justify-end gap-2 text-[11px] p-3 pb-4 md:p-0 md:pb-0 md:pt-2">
           <button
             type="button"
-            class="rounded-md border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-800 md:text-[11px]"
+            class="rounded-md border border-slate-600 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 md:px-3"
             @click="closeCamera"
           >
             Cancel
           </button>
           <button
             type="button"
-            class="rounded-lg bg-emerald-500 px-6 py-3 text-base font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 active:scale-95 transition-transform md:rounded-md md:px-4 md:py-1.5 md:text-[11px] md:shadow-none"
+            class="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 md:px-4"
             @click="captureFromCamera"
           >
             Capture &amp; classify
