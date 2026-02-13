@@ -49,8 +49,14 @@ async function startCamera() {
       cameraError.value = 'Camera not supported in this browser.'
       return
     }
+    // Request ideal resolution for mobile (prefer wide aspect ratios)
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        aspectRatio: { ideal: 16 / 9 },
+      },
     })
     cameraStream.value = stream
     const video = videoRef.value
@@ -127,15 +133,15 @@ onBeforeUnmount(() => {
     <!-- Camera overlay -->
     <div
       v-if="isCameraOpen"
-      class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4"
+      class="fixed inset-0 z-40 flex flex-col bg-black md:items-center md:justify-center md:bg-black/70 md:px-4"
     >
-      <div class="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-950 p-4 space-y-3 shadow-xl">
-        <div class="flex items-center justify-between gap-3">
+      <div class="flex-1 flex flex-col w-full md:w-full md:max-w-xl md:rounded-2xl md:border md:border-slate-700 md:bg-slate-950 md:p-4 md:space-y-3 md:shadow-xl">
+        <div class="flex items-center justify-between gap-3 p-4 md:p-0">
           <div>
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-300">
               Live capture
             </p>
-            <p class="text-[11px] text-slate-400">
+            <p class="text-[11px] text-slate-400 hidden md:block">
               Align the plant leaf, then capture to classify using the pre-optimised feature mask.
             </p>
           </div>
@@ -148,20 +154,21 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="rounded-xl border border-slate-800 bg-black overflow-hidden">
+        <!-- Mobile: full-width video, Desktop: contained aspect-video -->
+        <div class="flex-1 flex items-center justify-center overflow-hidden md:rounded-xl md:border md:border-slate-800 bg-black">
           <video
             ref="videoRef"
             autoplay
             playsinline
-            class="block w-full aspect-video bg-black"
+            class="w-full h-full object-cover md:block md:w-full md:aspect-video md:h-auto md:object-contain"
           />
         </div>
 
-        <p v-if="cameraError" class="text-[11px] text-red-400">
+        <p v-if="cameraError" class="text-[11px] text-red-400 px-4 md:px-0">
           {{ cameraError }}
         </p>
 
-        <div class="flex items-center justify-end gap-2 text-[11px]">
+        <div class="flex items-center justify-end gap-2 text-[11px] p-4 pb-6 md:p-0 md:pb-0">
           <button
             type="button"
             class="rounded-md border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-800"
